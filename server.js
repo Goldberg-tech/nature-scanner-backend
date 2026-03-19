@@ -14,12 +14,8 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-const YANDEX_API_KEY   = process.env.YANDEX_API_KEY;
-const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
-
-// Правильный endpoint для мультимодальной модели с поддержкой изображений
-const YANDEX_VISION_URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion';
-const VISION_MODEL      = `gpt://${YANDEX_FOLDER_ID}/yandexgpt-vision/latest`;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 // ─── Промпты по режимам ──────────────────────────────────────────────────────
 const PROMPTS = {
@@ -77,18 +73,15 @@ const PROMPTS = {
 Отвечай ТОЛЬКО JSON, без лишнего текста.`
 };
 
-// ─── Хелпер: вытащить JSON из ответа ────────────────────────────────────────
 function extractJSON(text) {
   const clean = text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
   return JSON.parse(clean);
 }
 
-// ─── Health check ────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'nature-scanner-backend', ai: 'yandexgpt-vision' });
+  res.json({ status: 'ok', service: 'nature-scanner-backend', ai: 'gemini' });
 });
 
-// ─── Основной роут: распознавание по фото ───────────────────────────────────
 app.post('/scan', upload.single('photo'), async (req, res) => {
   try {
     let imageBase64, mediaType;
@@ -115,49 +108,36 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'Неизвестный режим: ' + mode });
     }
 
-    // Запрос к YandexGPT Vision — мультимодальный формат с изображением
     const response = await axios.post(
-      YANDEX_VISION_URL,
+      GEMINI_URL,
       {
-        modelUri: `gpt://${YANDEX_FOLDER_ID}/yandexgpt-vision/latest`,
-        completionOptions: {
-          stream: false,
-          temperature: 0.1,
-          maxTokens: '1000'
-        },
-        messages: [
+        contents: [
           {
-            role: 'system',
-            text: prompt
-          },
-          {
-            role: 'user',
-            content: [
+            parts: [
               {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mediaType};base64,${imageBase64}`
+                inline_data: {
+                  mime_type: mediaType,
+                  data: imageBase64
                 }
               },
               {
-                type: 'text',
-                text: 'Определи что на фото согласно инструкции и верни только JSON.'
+                text: prompt
               }
             ]
           }
-        ]
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 1000
+        }
       },
       {
-        headers: {
-          'Authorization': `Api-Key ${YANDEX_API_KEY}`,
-          'x-folder-id':   YANDEX_FOLDER_ID,
-          'Content-Type':  'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         timeout: 30000
       }
     );
 
-    const rawText = response.data?.result?.alternatives?.[0]?.message?.text || '';
+    const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     let result;
     try {
@@ -180,4 +160,4 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Nature Scanner backend running on port ${PORT} (YandexGPT Vision)`));
+app.listen(PORT, () => console.log(`Nature Scanner backend running on port ${PORT} (Gemini)`));
