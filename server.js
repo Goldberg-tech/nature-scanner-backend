@@ -15,8 +15,11 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 const YANDEX_API_KEY   = process.env.YANDEX_API_KEY;
-const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID || 'b1gaq1v6fbm3reud0vf8';
-const YANDEX_GPT_URL   = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion';
+const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
+
+// Правильный endpoint для мультимодальной модели с поддержкой изображений
+const YANDEX_VISION_URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion';
+const VISION_MODEL      = `gpt://${YANDEX_FOLDER_ID}/yandexgpt-vision/latest`;
 
 // ─── Промпты по режимам ──────────────────────────────────────────────────────
 const PROMPTS = {
@@ -82,13 +85,12 @@ function extractJSON(text) {
 
 // ─── Health check ────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'nature-scanner-backend', ai: 'yandexgpt' });
+  res.json({ status: 'ok', service: 'nature-scanner-backend', ai: 'yandexgpt-vision' });
 });
 
 // ─── Основной роут: распознавание по фото ───────────────────────────────────
 app.post('/scan', upload.single('photo'), async (req, res) => {
   try {
-    // Получаем изображение
     let imageBase64, mediaType;
     if (req.file) {
       imageBase64 = req.file.buffer.toString('base64');
@@ -107,22 +109,21 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'Нет изображения' });
     }
 
-    // Определяем режим
     const mode   = req.body.mode || 'mushroom';
     const prompt = PROMPTS[mode];
     if (!prompt) {
       return res.status(400).json({ error: 'Неизвестный режим: ' + mode });
     }
 
-    // Запрос к YandexGPT Vision (Pro multimodal)
+    // Запрос к YandexGPT Vision — мультимодальный формат с изображением
     const response = await axios.post(
-      YANDEX_GPT_URL,
+      YANDEX_VISION_URL,
       {
-        modelUri: `gpt://${YANDEX_FOLDER_ID}/yandexgpt/latest`,
+        modelUri: `gpt://${YANDEX_FOLDER_ID}/yandexgpt-vision/latest`,
         completionOptions: {
           stream: false,
           temperature: 0.1,
-          maxTokens: 1000
+          maxTokens: '1000'
         },
         messages: [
           {
@@ -179,4 +180,4 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Nature Scanner backend running on port ${PORT} (YandexGPT)`));
+app.listen(PORT, () => console.log(`Nature Scanner backend running on port ${PORT} (YandexGPT Vision)`));
