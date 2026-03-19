@@ -1,5 +1,5 @@
 {
-  "name": "nature-scanner-backend",
+  "nam": "nature-scanner-backend",
   "version": "1.0.0",
   "description": "Backend for Nature Scanner — AI identification of mushrooms, plants, weeds and diseases by photo",
   "main": "server.js",
