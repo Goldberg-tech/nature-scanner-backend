@@ -3,6 +3,8 @@ const express = require('express');
 const cors    = require('cors');
 const multer  = require('multer');
 const axios   = require('axios');
+const Database = require('better-sqlite3');
+const path    = require('path');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -10,9 +12,185 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
+// ══ КОНФИГ ════════════════════════════════════════════════════
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const BOT_TOKEN      = process.env.BOT_TOKEN;       // токен бота MAX
+const BOT_API        = 'https://botapi.max.ru';
+const BOT_NICK       = process.env.BOT_NICK || '';  // ник бота без @, например: atlas_bot
 
+// ══ БАЗА ДАННЫХ (SQLite) ═══════════════════════════════════════
+const db = new Database(path.join('/tmp', 'atlas.db'));
+
+// Таблица пользователей
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    user_id     INTEGER PRIMARY KEY,
+    name        TEXT,
+    username    TEXT,
+    source      TEXT DEFAULT 'direct',
+    first_seen  TEXT DEFAULT (datetime('now')),
+    last_seen   TEXT DEFAULT (datetime('now')),
+    scan_count  INTEGER DEFAULT 0
+  )
+`);
+
+// Таблица сканирований
+db.exec(`
+  CREATE TABLE IF NOT EXISTS scans (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER,
+    mode       TEXT,
+    result     TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )
+`);
+
+// Хелперы для работы с БД
+const upsertUser = db.prepare(`
+  INSERT INTO users (user_id, name, username, source)
+  VALUES (@user_id, @name, @username, @source)
+  ON CONFLICT(user_id) DO UPDATE SET
+    last_seen = datetime('now'),
+    name      = COALESCE(@name, name),
+    username  = COALESCE(@username, username)
+`);
+
+const incrementScans = db.prepare(`
+  UPDATE users SET scan_count = scan_count + 1, last_seen = datetime('now')
+  WHERE user_id = @user_id
+`);
+
+const insertScan = db.prepare(`
+  INSERT INTO scans (user_id, mode, result) VALUES (@user_id, @mode, @result)
+`);
+
+// ══ BOT API HELPERS ════════════════════════════════════════════
+
+// Установка вебхука — вызывается один раз при старте
+async function setupWebhook() {
+  if (!BOT_TOKEN) return;
+  const webhookUrl = process.env.WEBHOOK_URL; // например: https://your-app.railway.app/webhook
+  if (!webhookUrl) {
+    console.log('WEBHOOK_URL не задан — вебхук не установлен');
+    return;
+  }
+  try {
+    await axios.post(`${BOT_API}/subscriptions?access_token=${BOT_TOKEN}`, {
+      url: webhookUrl,
+      update_types: ['bot_started', 'message_created']
+    });
+    console.log('Вебхук установлен:', webhookUrl);
+  } catch (e) {
+    console.error('Ошибка установки вебхука:', e.response?.data || e.message);
+  }
+}
+
+// Отправка сообщения с картинкой и кнопкой
+async function sendWelcome(userId, userName, source) {
+  if (!BOT_TOKEN) return;
+
+  const firstName = userName || 'друг';
+  const sourceText = source ? ` (источник: ${source})` : '';
+
+  // Текст приветствия
+  const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.\n\n👇 Нажми кнопку чтобы начать`;
+
+  try {
+    await axios.post(`${BOT_API}/messages?access_token=${BOT_TOKEN}`, {
+      recipient: { user_id: userId },
+      message: {
+        text,
+        attachments: [{
+          type: 'inline_keyboard',
+          payload: {
+            buttons: [[{
+              type: 'app_link',
+              text: '📖 Открыть Атлас',
+              payload: source || '',
+              app_link: `https://max.ru/${BOT_NICK}?startapp`
+            }]]
+          }
+        }]
+      }
+    });
+    console.log(`Приветствие отправлено user ${userId}${sourceText}`);
+  } catch (e) {
+    console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
+  }
+}
+
+// ══ WEBHOOK HANDLER ════════════════════════════════════════════
+app.post('/webhook', async (req, res) => {
+  res.status(200).json({ ok: true }); // отвечаем сразу чтобы MAX не ждал
+
+  const update = req.body;
+  if (!update) return;
+
+  // Пользователь запустил бота (первый раз или повторно)
+  if (update.update_type === 'bot_started') {
+    const user    = update.user || {};
+    const userId  = user.user_id;
+    const name    = user.name || user.first_name || null;
+    const username = user.username || null;
+    const source  = update.payload || 'direct'; // payload из диплинка ?start=source_vk
+
+    if (userId) {
+      // Сохраняем пользователя
+      upsertUser.run({ user_id: userId, name, username, source });
+
+      // Отправляем приветствие
+      await sendWelcome(userId, name, source);
+    }
+  }
+});
+
+// ══ ANALYTICS API ══════════════════════════════════════════════
+// Защита простым секретом — добавь ADMIN_SECRET в переменные Railway
+function adminAuth(req, res, next) {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return next(); // если не задан — открытый доступ
+  if (req.headers['x-admin-secret'] === secret) return next();
+  res.status(403).json({ error: 'Forbidden' });
+}
+
+// Общая статистика
+app.get('/stats', adminAuth, (req, res) => {
+  const totalUsers   = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  const activeToday  = db.prepare(`SELECT COUNT(*) as count FROM users WHERE last_seen >= datetime('now', '-1 day')`).get();
+  const activeWeek   = db.prepare(`SELECT COUNT(*) as count FROM users WHERE last_seen >= datetime('now', '-7 days')`).get();
+  const totalScans   = db.prepare('SELECT COUNT(*) as count FROM scans').get();
+  const scansToday   = db.prepare(`SELECT COUNT(*) as count FROM scans WHERE created_at >= datetime('now', '-1 day')`).get();
+  const topModes     = db.prepare(`SELECT mode, COUNT(*) as count FROM scans GROUP BY mode ORDER BY count DESC`).all();
+  const topSources   = db.prepare(`SELECT source, COUNT(*) as count FROM users GROUP BY source ORDER BY count DESC`).all();
+  const newUsersWeek = db.prepare(`SELECT DATE(first_seen) as day, COUNT(*) as count FROM users WHERE first_seen >= datetime('now', '-7 days') GROUP BY day ORDER BY day`).all();
+
+  res.json({
+    users: {
+      total:        totalUsers.count,
+      active_today: activeToday.count,
+      active_week:  activeWeek.count,
+    },
+    scans: {
+      total:       totalScans.count,
+      today:       scansToday.count,
+      by_mode:     topModes,
+    },
+    sources:       topSources,
+    new_users_by_day: newUsersWeek,
+  });
+});
+
+// Список пользователей
+app.get('/users', adminAuth, (req, res) => {
+  const limit  = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  const users  = db.prepare('SELECT * FROM users ORDER BY last_seen DESC LIMIT ? OFFSET ?').all(limit, offset);
+  const total  = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  res.json({ total: total.count, users });
+});
+
+// ══ PROMPTS ════════════════════════════════════════════════════
 const PROMPTS = {
 
   plant: `Ты эксперт-ботаник. Посмотри на фото.
@@ -124,7 +302,8 @@ function extractJSON(text) {
   return JSON.parse(clean);
 }
 
-app.get('/', (req, res) => res.json({ status: 'ok', service: 'nature-scanner-backend', ai: 'gemini-2.5-flash' }));
+// ══ SCAN ENDPOINT ══════════════════════════════════════════════
+app.get('/', (req, res) => res.json({ status: 'ok', service: 'atlas-backend', ai: 'gemini-2.5-flash' }));
 
 app.post('/scan', upload.single('photo'), async (req, res) => {
   try {
@@ -142,6 +321,7 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
     }
 
     const mode   = req.body.mode || 'plant';
+    const userId = req.body.user_id ? parseInt(req.body.user_id) : null;
     const prompt = PROMPTS[mode];
     if (!prompt) return res.status(400).json({ error: 'Неизвестный режим: ' + mode });
 
@@ -166,6 +346,17 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
     }
 
     if (result.error) return res.status(422).json({ error: result.error });
+
+    // Сохраняем скан и обновляем счётчик пользователя
+    if (userId) {
+      try {
+        insertScan.run({ user_id: userId, mode, result: result.name || '' });
+        incrementScans.run({ user_id: userId });
+      } catch (e) {
+        console.error('DB scan save error:', e.message);
+      }
+    }
+
     res.json({ mode, result });
 
   } catch (err) {
@@ -174,5 +365,9 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
   }
 });
 
+// ══ ЗАПУСК ════════════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Nature Scanner running on port ${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`Atlas Backend running on port ${PORT}`);
+  await setupWebhook();
+});
