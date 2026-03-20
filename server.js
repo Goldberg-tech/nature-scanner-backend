@@ -81,7 +81,7 @@ async function setupWebhook() {
   }
 }
 
-async function sendWelcome(userId, userName, source) {
+async function sendWelcome(userId, chatId, userName, source) {
   if (!BOT_TOKEN) return;
 
   const firstName = userName || 'друг';
@@ -90,7 +90,7 @@ async function sendWelcome(userId, userName, source) {
 
   try {
     await axios.post(`${BOT_API}/messages?access_token=${BOT_TOKEN}`, {
-      recipient: { user_id: String(userId) },
+      recipient: { chat_id: String(chatId) },
       message: {
         text,
         attachments: [{
@@ -136,7 +136,7 @@ app.post('/webhook', async (req, res) => {
       } catch (e) {
         console.error('DB upsert error:', e.message);
       }
-      await sendWelcome(userId, name, source);
+      await sendWelcome(userId, update.chat_id, name, source);
     } else {
       console.log('userId не найден в update:', JSON.stringify(update));
     }
