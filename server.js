@@ -16,7 +16,7 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 const BOT_TOKEN      = process.env.BOT_TOKEN;
-const BOT_API        = 'https://platform-api.max.ru'; // правильный базовый URL
+const BOT_API        = 'https://platform-api.max.ru';
 const BOT_NICK       = process.env.BOT_NICK || '';
 
 // ══ БАЗА ДАННЫХ (SQLite) ═══════════════════════════════════════
@@ -84,24 +84,15 @@ async function setupWebhook() {
 
 async function sendWelcome(userId, userName, source) {
   if (!BOT_TOKEN) return;
-
   const firstName = userName || 'друг';
   const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.`;
-
   try {
     const response = await axios.post(
       `${BOT_API}/messages?user_id=${userId}`,
       { text },
       { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
     );
-    console.log('Приветствие отправлено:', response.data);
-  } catch (e) {
-    console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
-  }
-},
-      { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
-    );
-    console.log('Приветствие отправлено user:', userId);
+    console.log('Приветствие отправлено:', response.data?.message?.body?.mid);
   } catch (e) {
     console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
   }
