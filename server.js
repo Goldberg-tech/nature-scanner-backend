@@ -2,7 +2,7 @@ require('dotenv').config();
 const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
-const axios    = requir('axios');
+const axios    = require('axios');
 const Database = require('better-sqlite3');
 const path     = require('path');
 
