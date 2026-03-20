@@ -6,9 +6,6 @@ const axios    = require('axios');
 const Database = require('better-sqlite3');
 const path     = require('path');
 
-// ══ ОФИЦИАЛЬНАЯ БИБЛИОТЕКА MAX BOT API ════════════════════════
-const { Bot, Keyboard } = require('@maxhub/max-bot-api');
-
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 app.use(cors({ origin: '*' }));
@@ -18,6 +15,8 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 // ══ КОНФИГ ════════════════════════════════════════════════════
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const BOT_TOKEN      = process.env.BOT_TOKEN;
+const BOT_API        = 'https://platform-api.max.ru'; // правильный базовый URL
 const BOT_NICK       = process.env.BOT_NICK || '';
 
 // ══ БАЗА ДАННЫХ (SQLite) ═══════════════════════════════════════
@@ -63,38 +62,79 @@ const insertScan = db.prepare(`
   INSERT INTO scans (user_id, mode, result) VALUES (@user_id, @mode, @result)
 `);
 
-// ══ БОТ ═══════════════════════════════════════════════════════
-const bot = new Bot(process.env.BOT_TOKEN);
+// ══ BOT HELPERS ════════════════════════════════════════════════
+async function setupWebhook() {
+  if (!BOT_TOKEN) return;
+  const webhookUrl = process.env.WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.log('WEBHOOK_URL не задан — вебхук не установлен');
+    return;
+  }
+  try {
+    await axios.post(
+      `${BOT_API}/subscriptions`,
+      { url: webhookUrl, update_types: ['bot_started', 'message_created'] },
+      { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    console.log('Вебхук установлен:', webhookUrl);
+  } catch (e) {
+    console.error('Ошибка установки вебхука:', e.response?.data || e.message);
+  }
+}
 
-// Обработчик нажатия кнопки "Начать"
-bot.on('bot_started', async (ctx) => {
-  const user     = ctx.user;
-  const userId   = user?.user_id;
-  const name     = user?.name || user?.first_name || null;
-  const username = user?.username || null;
-  const source   = ctx.update?.payload || 'direct';
+async function sendWelcome(userId, userName, source) {
+  if (!BOT_TOKEN) return;
 
-  console.log('bot_started userId:', userId, 'name:', name, 'source:', source);
+  const firstName = userName || 'друг';
+  const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.\n\n👇 Нажми кнопку чтобы начать`;
 
-  // Сохраняем пользователя в БД
-  if (userId) {
-    try {
-      upsertUser.run({ user_id: userId, name, username, source });
-    } catch (e) {
-      console.error('DB upsert error:', e.message);
+  try {
+    const response = await axios.post(
+      `${BOT_API}/messages?user_id=${userId}`,  // user_id в query параметре
+      {
+        text,
+        attachments: [{
+          type: 'inline_keyboard',
+          payload: {
+            buttons: [[{
+              type: 'app_link',
+              text: '📖 Открыть Атлас',
+              url: `https://max.ru/${BOT_NICK}?startapp`
+            }]]
+          }
+        }]
+      },
+      { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    console.log('Приветствие отправлено user:', userId);
+  } catch (e) {
+    console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
+  }
+}
+
+// ══ WEBHOOK HANDLER ════════════════════════════════════════════
+app.post('/webhook', async (req, res) => {
+  res.status(200).json({ ok: true });
+
+  const update = req.body;
+  console.log('WEBHOOK UPDATE:', JSON.stringify(update, null, 2));
+  if (!update) return;
+
+  if (update.update_type === 'bot_started') {
+    const userId   = update.user_id;
+    const userObj  = update.user || {};
+    const name     = userObj.name || userObj.first_name || null;
+    const username = userObj.username || null;
+    const source   = update.payload || 'direct';
+
+    console.log('bot_started userId:', userId, 'name:', name);
+
+    if (userId) {
+      try { upsertUser.run({ user_id: userId, name, username, source }); }
+      catch (e) { console.error('DB upsert error:', e.message); }
+      await sendWelcome(userId, name, source);
     }
   }
-
-  // Кнопка открытия мини-приложения
-  const keyboard = Keyboard.inlineKeyboard([
-    [Keyboard.button.openApp('📖 Открыть Атлас', `https://max.ru/${BOT_NICK}?startapp`)]
-  ]);
-
-  const firstName = name || 'друг';
-  return ctx.reply(
-    `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.\n\n👇 Нажми кнопку чтобы начать`,
-    { attachments: [keyboard] }
-  );
 });
 
 // ══ ANALYTICS API ══════════════════════════════════════════════
@@ -315,11 +355,7 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 
 // ══ ЗАПУСК ════════════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Atlas Backend running on port ${PORT}`);
-  console.log('Запускаем бота...');
-  bot.catch(err => console.error('Ошибка бота:', JSON.stringify(err)));
-  bot.start()
-    .then(() => console.log('Бот запущен!'))
-    .catch(e => console.error('Бот не запустился:', e.message, JSON.stringify(e)));
+  await setupWebhook();
 });
