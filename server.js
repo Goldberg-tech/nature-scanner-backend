@@ -3,7 +3,7 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const axios    = require('axios');
-const Database = requir('better-sqlite3');
+const Database = require('better-sqlite3');
 const path     = require('path');
 
 // ══ ОФИЦИАЛЬНАЯ БИБЛИОТЕКА MAX BOT API ════════════════════════
