@@ -317,7 +317,9 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Atlas Backend running on port ${PORT}`);
+  console.log('Запускаем бота...');
+  bot.catch(err => console.error('Ошибка бота:', JSON.stringify(err)));
+  bot.start()
+    .then(() => console.log('Бот запущен!'))
+    .catch(e => console.error('Бот не запустился:', e.message, JSON.stringify(e)));
 });
-
-// Запускаем бота отдельно — он использует Long Polling
-bot.start().catch(console.error);
