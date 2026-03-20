@@ -86,24 +86,19 @@ async function sendWelcome(userId, userName, source) {
   if (!BOT_TOKEN) return;
 
   const firstName = userName || 'друг';
-  const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.\n\n👇 Нажми кнопку чтобы начать`;
+  const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.`;
 
   try {
     const response = await axios.post(
-      `${BOT_API}/messages?user_id=${userId}`,  // user_id в query параметре
-      {
-        text,
-        attachments: [{
-          type: 'inline_keyboard',
-          payload: {
-            buttons: [[{
-              type: 'app_link',
-              text: '📖 Открыть Атлас',
-              url: `https://max.ru/${BOT_NICK}?startapp`
-            }]]
-          }
-        }]
-      },
+      `${BOT_API}/messages?user_id=${userId}`,
+      { text },
+      { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    console.log('Приветствие отправлено:', response.data);
+  } catch (e) {
+    console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
+  }
+},
       { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
     );
     console.log('Приветствие отправлено user:', userId);
