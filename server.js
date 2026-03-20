@@ -88,10 +88,22 @@ async function sendWelcome(userId, userName, source) {
   const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.`;
   try {
     const response = await axios.post(
-      `${BOT_API}/messages?user_id=${userId}`,
-      { text },
-      { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
-    );
+  `${BOT_API}/messages?user_id=${userId}`,
+  {
+    text,
+    attachments: [{
+      type: 'inline_keyboard',
+      payload: {
+        buttons: [[{
+          type: 'link',
+          text: '📖 Открыть Атлас',
+          url: `https://max.ru/${BOT_NICK}?startapp`
+        }]]
+      }
+    }]
+  },
+  { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
+);
     console.log('Приветствие отправлено:', response.data?.message?.body?.mid);
   } catch (e) {
     console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
