@@ -125,6 +125,7 @@ app.post('/webhook', async (req, res) => {
   res.status(200).json({ ok: true }); // отвечаем сразу чтобы MAX не ждал
 
   const update = req.body;
+  console.log('WEBHOOK UPDATE:', JSON.stringify(update, null, 2));
   if (!update) return;
 
   // Пользователь запустил бота (первый раз или повторно)
