@@ -110,7 +110,7 @@ async function sendWelcome(userId, userName, source) {
                 }],
                 [{
                   type: 'link',
-                  text: '👥 Поделись с друзьями',
+                  text: '👥 Поделитесь с друзьями',
                   url: `https://max.ru/:share?text=${shareText}`
                 }]
               ]
