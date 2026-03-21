@@ -3,8 +3,7 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const axios    = require('axios');
-const Database = require('pg');
-const path     = require('path');
+const { Pool } = require('pg');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -20,48 +19,59 @@ const BOT_API        = 'https://platform-api.max.ru';
 const BOT_NICK       = process.env.BOT_NICK || 'id770702125100_bot';
 const IMAGE_TOKEN    = 'xrypqisDoIjF2rXfnTP6mAJVUX+aL5U3YM3x1KnwIytZVlGSdFpOH3HGOEbRDI08pyZ4RPR/0KbZj3XRrwCWVZ7XJXX8uEBBBHO8aKgGKnn7CIaEE0UROI7SyaB2CnLzZCG97+7EGHFiw9tRM7Nzk/HTRqvxc//P';
 
-// ══ БАЗА ДАННЫХ (SQLite) ═══════════════════════════════════════
-const db = new Database(path.join('/tmp', 'atlas.db'));
+// ══ POSTGRESQL ════════════════════════════════════════════════
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    user_id     INTEGER PRIMARY KEY,
-    name        TEXT,
-    username    TEXT,
-    source      TEXT DEFAULT 'direct',
-    first_seen  TEXT DEFAULT (datetime('now')),
-    last_seen   TEXT DEFAULT (datetime('now')),
-    scan_count  INTEGER DEFAULT 0
-  )
-`);
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      user_id     BIGINT PRIMARY KEY,
+      name        TEXT,
+      username    TEXT,
+      source      TEXT DEFAULT 'direct',
+      first_seen  TIMESTAMP DEFAULT NOW(),
+      last_seen   TIMESTAMP DEFAULT NOW(),
+      scan_count  INTEGER DEFAULT 0
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scans (
+      id         SERIAL PRIMARY KEY,
+      user_id    BIGINT,
+      mode       TEXT,
+      result     TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  console.log('БД инициализирована');
+}
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS scans (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER,
-    mode       TEXT,
-    result     TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )
-`);
+async function upsertUser(userId, name, username, source) {
+  await pool.query(`
+    INSERT INTO users (user_id, name, username, source)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (user_id) DO UPDATE SET
+      last_seen = NOW(),
+      name      = COALESCE($2, users.name),
+      username  = COALESCE($3, users.username)
+  `, [userId, name, username, source]);
+}
 
-const upsertUser = db.prepare(`
-  INSERT INTO users (user_id, name, username, source)
-  VALUES (@user_id, @name, @username, @source)
-  ON CONFLICT(user_id) DO UPDATE SET
-    last_seen = datetime('now'),
-    name      = COALESCE(@name, name),
-    username  = COALESCE(@username, username)
-`);
+async function incrementScans(userId) {
+  await pool.query(`
+    UPDATE users SET scan_count = scan_count + 1, last_seen = NOW()
+    WHERE user_id = $1
+  `, [userId]);
+}
 
-const incrementScans = db.prepare(`
-  UPDATE users SET scan_count = scan_count + 1, last_seen = datetime('now')
-  WHERE user_id = @user_id
-`);
-
-const insertScan = db.prepare(`
-  INSERT INTO scans (user_id, mode, result) VALUES (@user_id, @mode, @result)
-`);
+async function insertScan(userId, mode, result) {
+  await pool.query(`
+    INSERT INTO scans (user_id, mode, result) VALUES ($1, $2, $3)
+  `, [userId, mode, result]);
+}
 
 // ══ BOT HELPERS ════════════════════════════════════════════════
 async function setupWebhook() {
@@ -87,7 +97,7 @@ async function sendWelcome(userId, userName, source) {
   if (!BOT_TOKEN) return;
   const firstName = userName || 'друг';
   const shareText = encodeURIComponent('Попробуй Атлас — определитель растений, грибов, животных и всего живого за секунду! https://max.ru/id770702125100_bot?startapp');
-  const text = `${firstName}, добро пожаловать в **Атлас** — личный определитель всего живого и не только.\n\nСфотографируйте растение, гриб, животное, камень или вообще что угодно и узнайте, что это за секунду.\n\n📌 Закрепите **Атлас** в чатах, чтобы он был рядом на даче, в лесу или на прогулке.`;
+  const text = `${firstName}, добро пожаловать в **Атлас** — личный определитель всего живого и не только. Сфотографируйте растение, гриб, животное, камень или вообще что угодно и узнайте, что это за секунду.\n\n📌 Закрепите **Атлас** в чатах, чтобы он был рядом на даче, в лесу или на прогулке.`;
   try {
     const response = await axios.post(
       `${BOT_API}/messages?user_id=${userId}`,
@@ -110,7 +120,7 @@ async function sendWelcome(userId, userName, source) {
                 }],
                 [{
                   type: 'link',
-                  text: '👥 Поделитесь с друзьями',
+                  text: '👥 Поделись с друзьями в чатах',
                   url: `https://max.ru/:share?text=${shareText}`
                 }]
               ]
@@ -144,7 +154,7 @@ app.post('/webhook', async (req, res) => {
     console.log('bot_started userId:', userId, 'name:', name);
 
     if (userId) {
-      try { upsertUser.run({ user_id: userId, name, username, source }); }
+      try { await upsertUser(userId, name, username, source); }
       catch (e) { console.error('DB upsert error:', e.message); }
       await sendWelcome(userId, name, source);
     }
@@ -159,38 +169,46 @@ function adminAuth(req, res, next) {
   res.status(403).json({ error: 'Forbidden' });
 }
 
-app.get('/stats', adminAuth, (req, res) => {
-  const totalUsers   = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  const activeToday  = db.prepare(`SELECT COUNT(*) as count FROM users WHERE last_seen >= datetime('now', '-1 day')`).get();
-  const activeWeek   = db.prepare(`SELECT COUNT(*) as count FROM users WHERE last_seen >= datetime('now', '-7 days')`).get();
-  const totalScans   = db.prepare('SELECT COUNT(*) as count FROM scans').get();
-  const scansToday   = db.prepare(`SELECT COUNT(*) as count FROM scans WHERE created_at >= datetime('now', '-1 day')`).get();
-  const topModes     = db.prepare(`SELECT mode, COUNT(*) as count FROM scans GROUP BY mode ORDER BY count DESC`).all();
-  const topSources   = db.prepare(`SELECT source, COUNT(*) as count FROM users GROUP BY source ORDER BY count DESC`).all();
-  const newUsersWeek = db.prepare(`SELECT DATE(first_seen) as day, COUNT(*) as count FROM users WHERE first_seen >= datetime('now', '-7 days') GROUP BY day ORDER BY day`).all();
+app.get('/stats', adminAuth, async (req, res) => {
+  try {
+    const totalUsers   = await pool.query('SELECT COUNT(*) as count FROM users');
+    const activeToday  = await pool.query(`SELECT COUNT(*) as count FROM users WHERE last_seen >= NOW() - INTERVAL '1 day'`);
+    const activeWeek   = await pool.query(`SELECT COUNT(*) as count FROM users WHERE last_seen >= NOW() - INTERVAL '7 days'`);
+    const totalScans   = await pool.query('SELECT COUNT(*) as count FROM scans');
+    const scansToday   = await pool.query(`SELECT COUNT(*) as count FROM scans WHERE created_at >= NOW() - INTERVAL '1 day'`);
+    const topModes     = await pool.query(`SELECT mode, COUNT(*) as count FROM scans GROUP BY mode ORDER BY count DESC`);
+    const topSources   = await pool.query(`SELECT source, COUNT(*) as count FROM users GROUP BY source ORDER BY count DESC`);
+    const newUsersWeek = await pool.query(`SELECT DATE(first_seen) as day, COUNT(*) as count FROM users WHERE first_seen >= NOW() - INTERVAL '7 days' GROUP BY day ORDER BY day`);
 
-  res.json({
-    users: {
-      total:        totalUsers.count,
-      active_today: activeToday.count,
-      active_week:  activeWeek.count,
-    },
-    scans: {
-      total:    totalScans.count,
-      today:    scansToday.count,
-      by_mode:  topModes,
-    },
-    sources:          topSources,
-    new_users_by_day: newUsersWeek,
-  });
+    res.json({
+      users: {
+        total:        parseInt(totalUsers.rows[0].count),
+        active_today: parseInt(activeToday.rows[0].count),
+        active_week:  parseInt(activeWeek.rows[0].count),
+      },
+      scans: {
+        total:    parseInt(totalScans.rows[0].count),
+        today:    parseInt(scansToday.rows[0].count),
+        by_mode:  topModes.rows,
+      },
+      sources:          topSources.rows,
+      new_users_by_day: newUsersWeek.rows,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.get('/users', adminAuth, (req, res) => {
-  const limit  = parseInt(req.query.limit) || 50;
-  const offset = parseInt(req.query.offset) || 0;
-  const users  = db.prepare('SELECT * FROM users ORDER BY last_seen DESC LIMIT ? OFFSET ?').all(limit, offset);
-  const total  = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  res.json({ total: total.count, users });
+app.get('/users', adminAuth, async (req, res) => {
+  try {
+    const limit  = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    const users  = await pool.query('SELECT * FROM users ORDER BY last_seen DESC LIMIT $1 OFFSET $2', [limit, offset]);
+    const total  = await pool.query('SELECT COUNT(*) as count FROM users');
+    res.json({ total: parseInt(total.rows[0].count), users: users.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ══ PROMPTS ════════════════════════════════════════════════════
@@ -352,8 +370,8 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 
     if (userId) {
       try {
-        insertScan.run({ user_id: userId, mode, result: result.name || '' });
-        incrementScans.run({ user_id: userId });
+        await insertScan(userId, mode, result.name || '');
+        await incrementScans(userId);
       } catch (e) {
         console.error('DB scan save error:', e.message);
       }
@@ -371,5 +389,6 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Atlas Backend running on port ${PORT}`);
+  await initDB();
   await setupWebhook();
 });
