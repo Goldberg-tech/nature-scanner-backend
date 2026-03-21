@@ -3,7 +3,7 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const axios    = require('axios');
-const Database = require('better-sqlite3');
+const Database = require('pg');
 const path     = require('path');
 
 const app    = express();
