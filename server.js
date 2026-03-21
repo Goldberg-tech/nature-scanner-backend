@@ -353,7 +353,7 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
           { inline_data: { mime_type: mediaType, data: imageBase64 } },
           { text: prompt }
         ]}],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
       },
       { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
     );
