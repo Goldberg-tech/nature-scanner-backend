@@ -343,6 +343,7 @@ app.post('/scan', upload.single('photo'), async (req, res) => {
 
     const mode   = req.body.mode || 'plant';
     const userId = req.body.user_id ? parseInt(req.body.user_id) : null;
+    console.log('scan userId:', req.body.user_id, '→', userId);
     const prompt = PROMPTS[mode];
     if (!prompt) return res.status(400).json({ error: 'Неизвестный режим: ' + mode });
 
