@@ -86,7 +86,8 @@ async function setupWebhook() {
 async function sendWelcome(userId, userName, source) {
   if (!BOT_TOKEN) return;
   const firstName = userName || 'друг';
-  const text = `${firstName}, добро пожаловать в **Атлас** — личный определитель всего живого и не только. Сфотографируйте растение, гриб, животное, камень или вообще что угодно и узнайте, что это за секунду.\n\nЗакрепите **Атлас** в чатах, чтобы он был рядом на даче, в лесу или на прогулке.`;
+  const shareText = encodeURIComponent('Попробуй Атлас — определитель растений, грибов, животных и всего живого за секунду! https://max.ru/id770702125100_bot?startapp');
+  const text = `${firstName}, добро пожаловать в **Атлас** — личный определитель всего живого и не только.\n\nСфотографируйте растение, гриб, животное, камень или вообще что угодно и узнайте, что это за секунду.\n\n📌 Закрепите **Атлас** в чатах, чтобы он был рядом на даче, в лесу или на прогулке.`;
   try {
     const response = await axios.post(
       `${BOT_API}/messages?user_id=${userId}`,
@@ -110,7 +111,7 @@ async function sendWelcome(userId, userName, source) {
                 [{
                   type: 'link',
                   text: '👥 Поделись с друзьями в чатах',
-                  url: `https://max.ru/${BOT_NICK}`
+                  url: `https://max.ru/:share?text=${shareText}`
                 }]
               ]
             }
