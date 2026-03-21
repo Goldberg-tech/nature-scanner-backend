@@ -85,23 +85,38 @@ async function setupWebhook() {
 async function sendWelcome(userId, userName, source) {
   if (!BOT_TOKEN) return;
   const firstName = userName || 'друг';
-  const text = `📖 Привет, ${firstName}!\n\nЯ Атлас — твой личный определитель всего живого.\n\nСфотографируй растение, гриб, ягоду, животное, насекомое или камень — и узнай что это за секунду.`;
+  const text = `${firstName}, добро пожаловать в Атлас — личный определитель всего живого и не только.\n\nСфотографируйте растение, гриб, ягоду, животное, насекомое или камень — и узнайте что это за секунду.\n\nЗакрепите Атлас в чатах — чтобы он был рядом на даче, в лесу или на прогулке.`;
   try {
     const response = await axios.post(
-  `${BOT_API}/messages?user_id=${userId}`,
-  {
-    text,
-    attachments: [{
-      type: 'inline_keyboard',
-      payload: {
-        buttons: [[{
-          type: 'link',
-          text: '📖 Открыть Атлас',
-          url: `https://max.ru/${BOT_NICK}?startapp`
-        }]]
-      }
-    }]
-  },
+      `${BOT_API}/messages?user_id=${userId}`,
+      {
+        text,
+        attachments: [
+          {
+            type: 'image',
+            payload: {
+              token: 'xrypqisDoIjF2rXfnTP6mAJVUX+aL5U3YM3x1KnwIytZVlGSdFpOH3HGOEbRDI08pyZ4RPR/0KbZj3XRrwCWVZ7XJXX8uEBBBHO8aKgGKnn7CIaEE0UROI7SyaB2CnLzZCG97+7EGHFiw9tRM7Nzk/HTRqvxc//P'
+            }
+          },
+          {
+            type: 'inline_keyboard',
+            payload: {
+              buttons: [[{
+                type: 'link',
+                text: '📖 Открыть Атлас',
+                url: `https://max.ru/${BOT_NICK}?startapp`
+              }]]
+            }
+          }
+        ]
+      },
+      { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    console.log('Приветствие отправлено:', response.data?.message?.body?.mid);
+  } catch (e) {
+    console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
+  }
+},
   { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
 );
     console.log('Приветствие отправлено:', response.data?.message?.body?.mid);
