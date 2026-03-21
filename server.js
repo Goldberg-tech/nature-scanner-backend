@@ -17,7 +17,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 const BOT_TOKEN      = process.env.BOT_TOKEN;
 const BOT_API        = 'https://platform-api.max.ru';
-const BOT_NICK       = process.env.BOT_NICK || '';
+const BOT_NICK       = process.env.BOT_NICK || 'id770702125100_bot';
 const IMAGE_TOKEN    = 'xrypqisDoIjF2rXfnTP6mAJVUX+aL5U3YM3x1KnwIytZVlGSdFpOH3HGOEbRDI08pyZ4RPR/0KbZj3XRrwCWVZ7XJXX8uEBBBHO8aKgGKnn7CIaEE0UROI7SyaB2CnLzZCG97+7EGHFiw9tRM7Nzk/HTRqvxc//P';
 
 // ══ БАЗА ДАННЫХ (SQLite) ═══════════════════════════════════════
@@ -86,12 +86,13 @@ async function setupWebhook() {
 async function sendWelcome(userId, userName, source) {
   if (!BOT_TOKEN) return;
   const firstName = userName || 'друг';
-  const text = `${firstName}, добро пожаловать в Атлас — личный определитель всего живого и не только.\n\nСфотографируйте растение, гриб, ягоду, животное, насекомое или камень — и узнайте что это за секунду.\n\nЗакрепите Атлас в чатах — чтобы он был рядом на даче, в лесу или на прогулке.`;
+  const text = `${firstName}, добро пожаловать в **Атлас** — личный определитель всего живого и не только. Сфотографируйте растение, гриб, животное, камень или вообще что угодно и узнайте, что это за секунду.\n\nЗакрепите **Атлас** в чатах, чтобы он был рядом на даче, в лесу или на прогулке.`;
   try {
     const response = await axios.post(
       `${BOT_API}/messages?user_id=${userId}`,
       {
         text,
+        format: 'markdown',
         attachments: [
           {
             type: 'image',
@@ -100,11 +101,18 @@ async function sendWelcome(userId, userName, source) {
           {
             type: 'inline_keyboard',
             payload: {
-              buttons: [[{
-                type: 'link',
-                text: '📖 Открыть Атлас',
-                url: `https://max.ru/${BOT_NICK}?startapp`
-              }]]
+              buttons: [
+                [{
+                  type: 'link',
+                  text: '📖 Открыть Атлас',
+                  url: `https://max.ru/${BOT_NICK}?startapp`
+                }],
+                [{
+                  type: 'link',
+                  text: '👥 Поделись с друзьями в чатах',
+                  url: `https://max.ru/${BOT_NICK}`
+                }]
+              ]
             }
           }
         ]
