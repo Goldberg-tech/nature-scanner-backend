@@ -18,6 +18,7 @@ const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/
 const BOT_TOKEN      = process.env.BOT_TOKEN;
 const BOT_API        = 'https://platform-api.max.ru';
 const BOT_NICK       = process.env.BOT_NICK || '';
+const IMAGE_TOKEN    = 'xrypqisDoIjF2rXfnTP6mAJVUX+aL5U3YM3x1KnwIytZVlGSdFpOH3HGOEbRDI08pyZ4RPR/0KbZj3XRrwCWVZ7XJXX8uEBBBHO8aKgGKnn7CIaEE0UROI7SyaB2CnLzZCG97+7EGHFiw9tRM7Nzk/HTRqvxc//P';
 
 // ══ БАЗА ДАННЫХ (SQLite) ═══════════════════════════════════════
 const db = new Database(path.join('/tmp', 'atlas.db'));
@@ -94,9 +95,7 @@ async function sendWelcome(userId, userName, source) {
         attachments: [
           {
             type: 'image',
-            payload: {
-              token: 'xrypqisDoIjF2rXfnTP6mAJVUX+aL5U3YM3x1KnwIytZVlGSdFpOH3HGOEbRDI08pyZ4RPR/0KbZj3XRrwCWVZ7XJXX8uEBBBHO8aKgGKnn7CIaEE0UROI7SyaB2CnLzZCG97+7EGHFiw9tRM7Nzk/HTRqvxc//P'
-            }
+            payload: { token: IMAGE_TOKEN }
           },
           {
             type: 'inline_keyboard',
@@ -112,13 +111,6 @@ async function sendWelcome(userId, userName, source) {
       },
       { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
     );
-    console.log('Приветствие отправлено:', response.data?.message?.body?.mid);
-  } catch (e) {
-    console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
-  }
-},
-  { headers: { 'Authorization': BOT_TOKEN, 'Content-Type': 'application/json' } }
-);
     console.log('Приветствие отправлено:', response.data?.message?.body?.mid);
   } catch (e) {
     console.error('Ошибка отправки приветствия:', e.response?.data || e.message);
