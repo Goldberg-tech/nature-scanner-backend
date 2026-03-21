@@ -3,7 +3,7 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const axios    = require('axios');
-const { Pool } = require('pg');
+const { Pool } = requir('pg');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
